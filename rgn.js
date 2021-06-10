@@ -103,14 +103,13 @@ class POI {
 		this.latitude = latitude;
 		this.longitude = longitude;
 		this.iconSource = iconSource;
-		this.marker = null;
-		this.visible = true;
 	}
 
 	makeMarker(icons){
-		this.marker = L.marker([this.latitude, this.longitude], {icon: icons[this.iconSource]});
-		return this.marker;
+		let marker = L.marker([this.latitude, this.longitude], {icon: icons[this.iconSource]});
+		return marker;
 	}
+
 }
 
 /* Vertice Geodesico */
@@ -124,7 +123,8 @@ class VG extends POI {
 
 	makeMarker(icons){
 		return super.makeMarker(icons)
-			.bindPopup("I'm the marker of VG <b>" + this.name + "</b>.<br/>"
+			.bindPopup("<b>&#9906; " + this.name + "</b><br/>"
+			+ "VG de ordem " + this.order + " (" + this.type + ")<br/>"
 			+ "Longitude: <b>" + this.longitude + "</b><br/>"
 			+ "Latitude: <b>" + this.latitude + "</b><br/>"
 			+ "Altitude: <b>" + this.altitude + "</b><br/>")
@@ -184,6 +184,7 @@ class Map {
 	constructor(center, zoom) {
 		this.lmap = L.map(MAP_ID).setView(center, zoom);
 		this.addBaseLayers(MAP_LAYERS);
+		this.layerGroups = {};
 		let icons = this.loadIcons(RESOURCES_DIR);
 		this.pois = this.loadRGN(RESOURCES_DIR + RGN_FILE_NAME);
 		this.populate(icons, this.pois);
@@ -260,7 +261,10 @@ class Map {
 	}
 
 	addMarker(icons, poi) {
-		poi.makeMarker(icons).addTo(this.lmap);
+		if(this.layerGroups[poi.constructor.name] == undefined){
+			this.layerGroups[poi.constructor.name] = L.layerGroup().addTo(this.lmap);
+		}
+		poi.makeMarker(icons).addTo(this.layerGroups[poi.constructor.name]);
 	}
 
 	addClickHandler(handler) {
@@ -271,17 +275,16 @@ class Map {
 		return this.lmap.on('click', handler2);
 	}
 
+	isPOIVisible(poi){
+		return this.lmap.hasLayer(this.layerGroups[poi.constructor.name]);
+	}
+
 	setPOIVisibility(target, visibility){
-		for (let i in this.pois){
-			if(this.pois[i].constructor.name === target){
-				this.pois[i].visible = visibility;
-				if(visibility){
-					this.pois[i].marker.addTo(this.lmap);
-				}
-				else{
-					this.pois[i].marker.removeFrom(this.lmap);
-				}
-			}
+		if(visibility){
+			this.layerGroups[target].addTo(this.lmap);
+		}
+		else{
+			this.layerGroups[target].removeFrom(this.lmap);
 		}
 	}
 
@@ -296,6 +299,46 @@ class Map {
 			circle.bindPopup(popup);
 		return circle;
 	}
+
+	centerOn(latitude, longitude){
+		this.lmap.flyTo(L.latLng(latitude, longitude), 16);
+	}
+
+	calculateVGStats(){
+		let returning = {
+			countAll : 0,
+			countPerOrder: {},
+			highest : null,
+			lowest : null
+		}
+		let highestAltitude = null;
+		let lowestAltitude = null;
+		for(let i in this.pois){
+			let vg = this.pois[i];
+			if(this.isPOIVisible(vg) && vg instanceof VG){
+				let altitude = parseInt(vg.altitude);
+				if (altitude != NaN && (highestAltitude == null || highestAltitude < altitude)){
+					returning.highest = vg;
+					highestAltitude = altitude;
+				}
+				if (altitude != NaN && (lowestAltitude == null || lowestAltitude > altitude)){
+					returning.lowest = vg;
+					lowestAltitude = altitude;
+				}
+				if(returning.countPerOrder[vg.order] == undefined){
+					returning.countPerOrder[vg.order] = 1;
+				}
+				else{
+					returning.countPerOrder[vg.order]++;
+				}
+				returning.countAll++;
+			}
+			else if (vg instanceof VG && returning.countPerOrder[vg.order] == undefined){
+				returning.countPerOrder[vg.order] = 0;
+			}
+		}
+		return returning;
+	}
 }
 
 
@@ -305,32 +348,52 @@ function onLoad()
 {
 	map = new Map(MAP_CENTRE, 12);
 	map.addCircle(MAP_CENTRE, 100, "FCT/UNL");
-	statsVG();
+	let inputs = document.getElementsByTagName("input");
+	for(let x in inputs){
+		if(inputs[x].type === "checkbox")
+			checkboxUpdate(inputs[x]);
+	}
+	displayStatsVG();
 }
 
 function checkboxUpdate(checkbox){
 	map.setPOIVisibility(checkbox.id, checkbox.checked);
-	statsVG();
+	displayStatsVG();
 }
 
-function statsVG() {
-	let countAll = 0;
-	let countPerOrder = {};
-	for(let i in map.pois){
-		let vg = map.pois[i];
-		if(vg instanceof VG){
-			if(countPerOrder[vg.order] == undefined){
-				countPerOrder[vg.order] = 1;
-			}
-			else{
-				countPerOrder[vg.order]++;
-			}
-		}
-		countAll++;
+function displayStatsVG() {
+	let stats = map.calculateVGStats();
+	document.getElementById("visible_caches").innerHTML = stats.countAll.toString();
+	let display = "";
+	for(let x in stats.countPerOrder){
+		display += "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp;Ordem " + 
+			x.toString() + ": " + 
+			stats.countPerOrder[x].toString() + "<br/>";
 	}
-	let display = countAll.toString() + "<br/>";
-	for(let x in countPerOrder){
-		display += "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp;Order " + x.toString() + ": " + countPerOrder[x].toString() + "<br/>";
+	document.getElementById("caches_by_order").innerHTML = display;
+
+	let highestAnchor = document.getElementById("highest_cache");
+	let lowestAnchor = document.getElementById("lowest_cache");
+
+	if(stats.highest != null) {
+		highestAnchor.innerHTML = stats.highest.name;
+		highestAnchor.href = "javascript:map.centerOn(" + 
+			stats.highest.latitude.toString()  + "," + 
+			stats.highest.longitude.toString() + ")"; 
 	}
-	document.getElementById("visible_caches").innerHTML = display;
+	else{
+		highestAnchor.innerHTML = "";
+		highestAnchor.href = ""; 
+	}
+
+	if(stats.lowest != null){
+		lowestAnchor.innerHTML = stats.lowest.name;
+		lowestAnchor.href = "javascript:map.centerOn(" + 
+			stats.lowest.latitude.toString()  + "," + 
+			stats.lowest.longitude.toString() + ")"; 
+	}
+	else{
+		lowestAnchor.innerHTML = "";
+		lowestAnchor.href = ""; 
+	}
 }
