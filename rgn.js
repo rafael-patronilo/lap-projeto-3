@@ -45,6 +45,7 @@ const RGN_FILE_NAME =
 	"rgn.xml";
 const HEIGHT_SCALE = 5;
 
+const MARK_RADIUS = 350;
 
 /* GLOBAL VARIABLES */
 
@@ -104,15 +105,40 @@ class POI {
 		this.latitude = latitude;
 		this.longitude = longitude;
 		this.iconSource = iconSource;
+		this.marker = null;
+		this.circle = null;
+		this.layer = null;
 	}
 
-	makeMarker(icons){
-		let marker = L.marker([this.latitude, this.longitude], {icon: icons[this.iconSource]});
-		return marker;
+	makeLayer(icons){
+		this.layer = L.layerGroup();
+		this.marker = L.marker(this.getLatLng(), {icon: icons[this.iconSource]}).addTo(this.layer);
+		return this.layer;
+	}
+
+	addCircle(radius, color, fillColor){
+		this.circle =
+			L.circle(this.getLatLng(),
+				radius,
+				{color: color, fillColor: fillColor, fillOpacity: 0.4}
+			);
+		this.circle.addTo(this.layer);
+		return this.circle;
+	}
+
+	removeCircle(){
+		if(this.circle == null)
+			return;
+		this.circle.removeFrom(this.layer);
+		this.circle = null;
 	}
 
 	isValid(map){
 		return true;
+	}
+
+	getLatLng(){
+		return L.latLng(this.latitude, this.longitude);
 	}
 
 }
@@ -128,23 +154,30 @@ class VG extends POI {
 		this.maxDistance = maxDistance;
 	}
 
-	makeMarker(icons){
-		return super.makeMarker(icons)
+	makeLayer(icons){
+		super.makeLayer(icons);
+		this.marker
 			.bindPopup("<b>&#9906; " + this.name + "</b><br/>"
 			+ "VG de ordem " + this.order + " (" + this.type + ")<br/>"
 			+ "Longitude: <b>" + this.longitude + "</b><br/>"
 			+ "Latitude: <b>" + this.latitude + "</b><br/>"
-			+ "Altitude: <b>" + this.altitude + "</b><br/>")
+			+ "Altitude: <b>" + this.altitude + "</b><br/>"
+			+ "<input type='button' value='Mostrar mesma ordem' onclick='map.markPOIs(\"" + 
+				this.constructor.name + "\")'>"
+			+ "<input type='button' value='StreetView' onclick='window.open(\"http://maps.google.com/maps?q=&layer=c&cbll=" 
+				+ this.latitude + "," + this.longitude
+				+ "\", \"_blank\")'>")
 				.bindTooltip(this.name);
+		return this.layer;
 	}
 
 	isValid(map){
-		let layers = map.layerGroups[this.constructor.name].getLayers();
+		let pois = map.layerGroups[this.constructor.name].pois;
 		if(this.minDistance == null && this.maxDistance == null){
 			return true;
 		}
-		for (let i in layers){
-			let latLng = layers[i].getLatLng();
+		for (let i in pois){
+			let latLng = pois[i].getLatLng();
 			let dist = haversine(this.latitude, this.longitude, latLng.lat, latLng.lng);
 			if((dist >= this.minDistance || this.minDistance == null) && 
 				(dist <= this.maxDistance || this.maxDistance == null)){
@@ -200,6 +233,30 @@ function xmlToVG(xml) {
 	}
 }
 
+class Group{
+	constructor(){
+		this.visible = true;
+		this.pois = [];
+		this.layers = [];
+	}
+
+	addMarker(icons, poi){
+		this.pois.push(poi);
+		this.layers.push(poi.makeLayer(icons));
+	}
+
+	addCircles(radius, color, fillColor){
+		for(let x in this.pois){
+			this.pois[x].addCircle(radius, color, fillColor);
+		}
+	}
+	
+	removeCircles(){
+		for(let x in this.pois){
+			this.pois[x].removeCircle();
+		}
+	}
+}
 
 /* MAP */
 
@@ -207,16 +264,13 @@ class Map {
 	constructor(center, zoom) {
 		this.lmap = L.map(MAP_ID).setView(center, zoom);
 		this.addBaseLayers(MAP_LAYERS);
+		this.cluster = L.markerClusterGroup().addTo(this.lmap);
 		this.layerGroups = {};
-		this.toClean = [];
 		let icons = this.loadIcons(RESOURCES_DIR);
 		this.pois = this.loadRGN(RESOURCES_DIR + RGN_FILE_NAME);
 		this.populate(icons, this.pois);
 		this.addClickHandler(e => {
-				for(let i in this.toClean){
-					this.toClean[i].removeFrom(this.lmap);
-				}
-				this.toClean = [];
+				this.cleanUpOnClick();
 				return L.popup()
 				.setLatLng(e.latlng)
 				.setContent("You clicked the map at " + e.latlng.toString());
@@ -271,6 +325,12 @@ class Map {
 		return icons;
 	}
 
+	cleanUpOnClick(){
+		for(let x in this.layerGroups){
+			this.layerGroups[x].removeCircles();
+		}
+	}
+
 	loadRGN(filename) {
 		let xmlDoc = loadXMLDoc(filename);
 		let xs = getAllValuesByTagName(xmlDoc, "vg"); 
@@ -284,16 +344,22 @@ class Map {
 		return vgs;
 	}
 
-	populate(icons, pois)  {
-		for(let i = 0 ; i < pois.length ; i++)
-			this.addMarker(icons, pois[i]);
+	remakeCluster(){
+		this.cluster.clearLayers();
+		for(let x in this.layerGroups)
+			if(this.layerGroups[x].visible)
+				this.cluster.addLayers(this.layerGroups[x].layers);
 	}
 
-	addMarker(icons, poi) {
-		if(this.layerGroups[poi.constructor.name] == undefined){
-			this.layerGroups[poi.constructor.name] = L.layerGroup().addTo(this.lmap);
+	populate(icons, pois)  {
+		for(let i = 0 ; i < pois.length ; i++) {
+			let poi = pois[i];
+			if(this.layerGroups[poi.constructor.name] == undefined){
+				this.layerGroups[poi.constructor.name] = new Group();
+			}
+			this.layerGroups[poi.constructor.name].addMarker(icons, pois[i]);
 		}
-		poi.makeMarker(icons).addTo(this.layerGroups[poi.constructor.name]);
+		this.remakeCluster();
 	}
 
 	addClickHandler(handler) {
@@ -305,19 +371,15 @@ class Map {
 	}
 
 	isPOIVisible(poi){
-		return this.lmap.hasLayer(this.layerGroups[poi.constructor.name]);
+		return this.layerGroups[poi.constructor.name].visible;
 	}
 
 	setPOIVisibility(target, visibility){
-		if(visibility){
-			this.layerGroups[target].addTo(this.lmap);
-		}
-		else{
-			this.layerGroups[target].removeFrom(this.lmap);
-		}
+		this.layerGroups[target].visible = visibility;
+		this.remakeCluster();
 	}
 
-	addCircle(pos, radius, popup, color, fillColor, persist) {
+	addCircle(pos, radius, popup, color, fillColor) {
 		let circle =
 			L.circle(pos,
 				radius,
@@ -326,8 +388,6 @@ class Map {
 		circle.addTo(this.lmap);
 		if( popup != "" )
 			circle.bindPopup(popup);
-		if(!persist)
-			this.toClean.push(circle);
 		return circle;
 	}
 
@@ -380,6 +440,12 @@ class Map {
 		}
 		return returning;
 	}
+
+	markPOIs(target) {
+		this.cleanUpOnClick();
+		this.layerGroups[target].addCircles(MARK_RADIUS, "blue", "white")
+		this.remakeCluster();
+	}
 }
 
 
@@ -388,7 +454,7 @@ class Map {
 function onLoad()
 {
 	map = new Map(MAP_CENTRE, 12);
-	map.addCircle(MAP_CENTRE, 100, "FCT/UNL", "red", "pink", true);
+	map.addCircle(MAP_CENTRE, 100, "FCT/UNL", "red", "pink");
 	let inputs = document.getElementsByTagName("input");
 	for(let x in inputs){
 		if(inputs[x].type === "checkbox")
@@ -467,6 +533,7 @@ function onHideInvalidClick(){
 }
 
 function onShowHeightsClick(){
+	/*
 	for(let x in map.pois){
 		if(map.pois[x] instanceof VG){
 			let lng = map.pois[x].longitude;
@@ -475,5 +542,5 @@ function onShowHeightsClick(){
 			if(!isNaN(alt))
 				map.addCircle(L.latLng(lat, lng), alt, "", "pink", "white", false);
 		}
-	}
+	}*/
 }
