@@ -110,15 +110,21 @@ class POI {
 		return marker;
 	}
 
+	isValid(map){
+		return true;
+	}
+
 }
 
 /* Vertice Geodesico */
 class VG extends POI {
-	constructor(name, latitude, longitude, altitude, type, order) {
+	constructor(name, latitude, longitude, altitude, type, order, minDistance, maxDistance) {
 		super(name, latitude, longitude, "order" + order);
 		this.order = order;
 		this.altitude = altitude;
 		this.type = type;
+		this.minDistance = minDistance;
+		this.maxDistance = maxDistance;
 	}
 
 	makeMarker(icons){
@@ -130,29 +136,45 @@ class VG extends POI {
 			+ "Altitude: <b>" + this.altitude + "</b><br/>")
 				.bindTooltip(this.name);
 	}
+
+	isValid(map){
+		let layers = map.layerGroups[this.constructor.name].getLayers();
+		if(this.minDistance == null && this.maxDistance == null){
+			return true;
+		}
+		for (let i in layers){
+			let latLng = layers[i].getLatLng();
+			let dist = haversine(this.latitude, this.longitude, latLng.lat, latLng.lng);
+			if((dist >= this.minDistance || this.minDistance == null) && 
+				(dist <= this.maxDistance || this.maxDistance == null)){
+				return true;
+			}
+		}
+		return false;
+	}
 }
 
 class VG1 extends VG{
 	constructor(name, latitude, longitude, altitude, type){
-		super(name, latitude, longitude, altitude, type, 1);
+		super(name, latitude, longitude, altitude, type, 1, 30, 60);
 	}
 }
 
 class VG2 extends VG{
 	constructor(name, latitude, longitude, altitude, type){
-		super(name, latitude, longitude, altitude, type, 2);
+		super(name, latitude, longitude, altitude, type, 2, 20, 30);
 	}
 }
 
 class VG3 extends VG{
 	constructor(name, latitude, longitude, altitude, type){
-		super(name, latitude, longitude, altitude, type, 3);
+		super(name, latitude, longitude, altitude, type, 3, 5, 10);
 	}
 }
 
 class VG4 extends VG{
 	constructor(name, latitude, longitude, altitude, type){
-		super(name, latitude, longitude, altitude, type, 4);
+		super(name, latitude, longitude, altitude, type, 4, null, null);
 	}
 }
 
@@ -173,7 +195,7 @@ function xmlToVG(xml) {
 		case "4":
 			return new VG4(name, latitude, longitude, altitude, type);
 		default:
-			return new VG(name, latitude, longitude, altitude, type, order);
+			return new VG(name, latitude, longitude, altitude, type, order, null, null);
 	}
 }
 
@@ -339,6 +361,16 @@ class Map {
 		}
 		return returning;
 	}
+
+	findInvalid(){
+		let returning = [];
+		for(let x in this.pois){
+			if(!this.pois[x].isValid(this)){
+				returning.push(this.pois[x]);
+			}
+		}
+		return returning;
+	}
 }
 
 
@@ -396,4 +428,29 @@ function displayStatsVG() {
 		lowestAnchor.innerHTML = "";
 		lowestAnchor.href = ""; 
 	}
+}
+
+function onFindInvalidClick(){
+	let button = document.getElementById("invalid_caches_button");
+	button.value = "Fechar VGs inválidos";
+	button.onclick = onHideInvalidClick;
+	let div = document.getElementById("invalid_caches_div");
+	div.style = "height:100px;border:1px solid #A4747E;border-left:0;border-right:0;overflow:auto;";
+	let display = "";
+	let invalidArray = map.findInvalid();
+	for(let x in invalidArray){
+		display += "<a href='javascript:map.centerOn(" + invalidArray[x].latitude + "," +
+		invalidArray[x].longitude + ")' >" +
+		invalidArray[x].name + "</a><br/>";
+	}
+	div.innerHTML = display;
+}
+
+function onHideInvalidClick(){
+	
+	button.value = "Procurar VGs inválidos";
+	button.onclick = onFindInvalidClick;
+	let div = document.getElementById("invalid_caches_div");
+	div.style = "";
+	div.innerHTML = "";
 }
