@@ -43,6 +43,7 @@ const VG_ORDERS =
 	["order1", "order2", "order3", "order4"];
 const RGN_FILE_NAME =
 	"rgn.xml";
+const HEIGHT_SCALE = 5;
 
 
 /* GLOBAL VARIABLES */
@@ -207,13 +208,19 @@ class Map {
 		this.lmap = L.map(MAP_ID).setView(center, zoom);
 		this.addBaseLayers(MAP_LAYERS);
 		this.layerGroups = {};
+		this.toClean = [];
 		let icons = this.loadIcons(RESOURCES_DIR);
 		this.pois = this.loadRGN(RESOURCES_DIR + RGN_FILE_NAME);
 		this.populate(icons, this.pois);
-		this.addClickHandler(e =>
-			L.popup()
-			.setLatLng(e.latlng)
-			.setContent("You clicked the map at " + e.latlng.toString())
+		this.addClickHandler(e => {
+				for(let i in this.toClean){
+					this.toClean[i].removeFrom(this.lmap);
+				}
+				this.toClean = [];
+				return L.popup()
+				.setLatLng(e.latlng)
+				.setContent("You clicked the map at " + e.latlng.toString());
+			}
 		);
 	}
 
@@ -310,15 +317,17 @@ class Map {
 		}
 	}
 
-	addCircle(pos, radius, popup) {
+	addCircle(pos, radius, popup, color, fillColor, persist) {
 		let circle =
 			L.circle(pos,
 				radius,
-				{color: 'red', fillColor: 'pink', fillOpacity: 0.4}
+				{color: color, fillColor: fillColor, fillOpacity: 0.4}
 			);
 		circle.addTo(this.lmap);
 		if( popup != "" )
 			circle.bindPopup(popup);
+		if(!persist)
+			this.toClean.push(circle);
 		return circle;
 	}
 
@@ -338,12 +347,12 @@ class Map {
 		for(let i in this.pois){
 			let vg = this.pois[i];
 			if(this.isPOIVisible(vg) && vg instanceof VG){
-				let altitude = parseInt(vg.altitude);
-				if (altitude != NaN && (highestAltitude == null || highestAltitude < altitude)){
+				let altitude = parseFloat(vg.altitude);
+				if (!isNaN(altitude) && (highestAltitude == null || highestAltitude < altitude)){
 					returning.highest = vg;
 					highestAltitude = altitude;
 				}
-				if (altitude != NaN && (lowestAltitude == null || lowestAltitude > altitude)){
+				if (!isNaN(altitude) && (lowestAltitude == null || lowestAltitude > altitude)){
 					returning.lowest = vg;
 					lowestAltitude = altitude;
 				}
@@ -379,7 +388,7 @@ class Map {
 function onLoad()
 {
 	map = new Map(MAP_CENTRE, 12);
-	map.addCircle(MAP_CENTRE, 100, "FCT/UNL");
+	map.addCircle(MAP_CENTRE, 100, "FCT/UNL", "red", "pink", true);
 	let inputs = document.getElementsByTagName("input");
 	for(let x in inputs){
 		if(inputs[x].type === "checkbox")
@@ -435,22 +444,36 @@ function onFindInvalidClick(){
 	button.value = "Fechar VGs inválidos";
 	button.onclick = onHideInvalidClick;
 	let div = document.getElementById("invalid_caches_div");
-	div.style = "height:100px;border:1px solid #A4747E;border-left:0;border-right:0;overflow:auto;";
+	div.style = "height:75px;border:1px solid #A4747E;border-left:0;border-right:0;overflow:auto;";
 	let display = "";
 	let invalidArray = map.findInvalid();
 	for(let x in invalidArray){
-		display += "<a href='javascript:map.centerOn(" + invalidArray[x].latitude + "," +
-		invalidArray[x].longitude + ")' >" +
-		invalidArray[x].name + "</a><br/>";
+		if(map.isPOIVisible(invalidArray[x])){
+			display += "<a href='javascript:map.centerOn(" + invalidArray[x].latitude + "," +
+			invalidArray[x].longitude + ")' >" +
+			invalidArray[x].name + "</a><br/>";
+		}
 	}
 	div.innerHTML = display;
 }
 
 function onHideInvalidClick(){
-	
+	let button = document.getElementById("invalid_caches_button");
 	button.value = "Procurar VGs inválidos";
 	button.onclick = onFindInvalidClick;
 	let div = document.getElementById("invalid_caches_div");
 	div.style = "";
 	div.innerHTML = "";
+}
+
+function onShowHeightsClick(){
+	for(let x in map.pois){
+		if(map.pois[x] instanceof VG){
+			let lng = map.pois[x].longitude;
+			let lat = map.pois[x].latitude;
+			let alt = parseFloat(map.pois[x].altitude) * HEIGHT_SCALE;
+			if(!isNaN(alt))
+				map.addCircle(L.latLng(lat, lng), alt, "", "pink", "white", false);
+		}
+	}
 }
