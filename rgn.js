@@ -4,6 +4,7 @@ Aluno 1: 57473 Rafael Patronilo
 Aluno 2: 58288 João Padrão
 
 Comentario:
+Todas as 10 funcionalidades foram implementadas.
 
 O ficheiro "rng.js" tem de incluir, logo nas primeiras linhas,
 um comentário inicial contendo: o nome e número dos dois alunos que
@@ -95,20 +96,24 @@ function getFirstValueByTagName(xml, name)  {
 	return getAllValuesByTagName(xml, name)[0].childNodes[0].nodeValue;
 }
 
+// Create html plain text object
 function textNode(text){
 	return document.createTextNode(text);
 }
 
+// Create html bold text object
 function bold(text){
 	let element = document.createElement("b");
 	element.appendChild(textNode(text));
 	return element;
 }
 
+// Create html break line
 function linebreak(){
 	return document.createElement("br");
 }
 
+// Create html button
 function button(id, text, onclick){
 	let element = document.createElement("input");
 	element.type = "button";
@@ -118,6 +123,7 @@ function button(id, text, onclick){
 	return element;
 }
 
+// Create fake icon (empty) used in clustering of circles
 function fakeIcon(){
 	let fakeIcon = L.divIcon(null);
 	fakeIcon.createIcon = function (params) {
@@ -129,10 +135,13 @@ function fakeIcon(){
 	return fakeIcon;
 }
 
+// Create fake marker used as placeholder for POIs without a circle
+// Required for proper clustering of circles
 function createPlaceholder(pos){
 	return L.marker(pos, {icon:fakeIcon()});
 }
 
+// Create fake cluster counter used in clustering of circles
 function createInvisibleCluster(){
 	return L.markerClusterGroup({
 		iconCreateFunction: function(cluster) {
@@ -150,6 +159,15 @@ function createCircle(pos, radius, color, fillColor, popup){
 	if( popup != "" )
 		circle.bindPopup(popup);
 	return circle;
+}
+
+function sortObject(object){
+	let sorted = {};
+	let sortedKeys = Object.keys(object).sort();
+	for(let i in sortedKeys){
+		sorted[sortedKeys[i]] = object[sortedKeys[i]];
+	}
+	return sorted;
 }
 
 /* Point Of Interest */
@@ -230,6 +248,7 @@ class VG extends POI {
 		div.appendChild(button("", "Mostrar mesma ordem", function(x){
 			map.markPOIs(name);
 			}));
+		
 		let lat = this.latitude;
 		let lng = this.longitude;
 		div.appendChild(button("", "StreetView", function(x){
@@ -238,6 +257,7 @@ class VG extends POI {
 		return div;
 	}
 
+	// Make sure there is a neighbour in range
 	isValid(map){
 		let pois = map.layerGroups[this.constructor.name].pois;
 		if(this.minDistance == null && this.maxDistance == null){
@@ -274,6 +294,7 @@ class VG1 extends VG{
 		let marker = super.makeMarker(icons);
 		let lat = this.latitude;
 		let lng = this.longitude;
+		// update count each time the popup opens, in case there has been any change
 		marker.on('popupopen', function(event){
 			let content = event.popup.getContent();
 			let span = content.children.namedItem("neighbours")
@@ -332,6 +353,7 @@ function xmlToVG(xml) {
 	}
 }
 
+/* POI Group */
 class Group{
 	constructor(){
 		this.visible = true;
@@ -350,12 +372,14 @@ class Group{
 		this.markers.push(poi.makeMarker(icons));
 	}
 
+	// Adds circles for every POI to the given cluster group
 	addCircles(radius, color, fillColor, cluster){
 		for(let x in this.pois){
 			createCircle(this.pois[x].getLatLng(), radius, color, fillColor, "").addTo(cluster);
 		}
 	}
 
+	// Adds placeholders (invisible markers) for every POI to the given cluster group
 	addPlaceholders(cluster){
 		for(let x in this.pois){
 			createPlaceholder(this.pois[x].getLatLng()).addTo(cluster);
@@ -366,6 +390,7 @@ class Group{
 		return this.pois.length;
 	}
 
+	// Counts all POIs that are neighbours (withing a certain distance) of a given point
 	countNeighbours(lat, lng, dist){
 		let count = 0;
 		for(let x in this.pois){
@@ -379,6 +404,7 @@ class Group{
 		return count;
 	}
 
+	// Marks all POIs that are neighbours (withing a certain distance) of a given point
 	markNeighbours(pos, dist, cluster){
 		for(let x in this.pois){
 			let poi = this.pois[x];
@@ -404,8 +430,8 @@ class Map {
 		this.circleCluster = createInvisibleCluster().addTo(this.lmap);
 		this.layerGroups = {};
 		let icons = this.loadIcons(RESOURCES_DIR);
-		this.pois = this.loadRGN(RESOURCES_DIR + RGN_FILE_NAME);
-		this.populate(icons, this.pois);
+		let pois = this.loadRGN(RESOURCES_DIR + RGN_FILE_NAME);
+		this.populate(icons, pois);
 		this.addClickHandler(e => {
 				this.cleanUpCircles();
 				return L.popup()
@@ -479,6 +505,7 @@ class Map {
 		return vgs;
 	}
 
+	// Re-adds the markers to the cluster to update visibility
 	remakeCluster(){
 		this.cluster.clearLayers();
 		for(let x in this.layerGroups)
@@ -505,25 +532,9 @@ class Map {
 		return this.lmap.on('click', handler2);
 	}
 
-	isPOIVisible(poi){
-		return this.layerGroups[poi.constructor.name].visible;
-	}
-
 	setPOIVisibility(target, visibility){
 		this.layerGroups[target].visible = visibility;
 		this.remakeCluster();
-	}
-
-	addCircle(pos, radius, popup, color, fillColor) {
-		let circle =
-			L.circle(pos,
-				radius,
-				{color: color, fillColor: fillColor, fillOpacity: 0.4}
-			);
-		circle.addTo(this.lmap);
-		if( popup != "" )
-			circle.bindPopup(popup);
-		return circle;
 	}
 
 	centerOn(latitude, longitude){
@@ -539,42 +550,64 @@ class Map {
 		}
 		for(let x in this.layerGroups){
 			let group = this.layerGroups[x];
-			if(group.visible && group.pois[0] instanceof VG){
-				returning.countPerOrder[x] = group.countPOIs();
-				returning.countAll += returning.countPerOrder[x];
+			//skip POIs that aren't VGs
+			if(!(group.pois.length > 0 && group.pois[0] instanceof VG)){
+				continue;
+			}
+			if(group.visible){
+				//update counts
+				let count = group.countPOIs();
+				returning.countPerOrder[group.pois[0].order] = count;
+				returning.countAll += count;
+
+				//find highest VG
 				if(returning.highest == null || returning.highest.altitude < group.highest.altitude)
 					returning.highest = group.highest;
+				//find lowest VG
 				if(returning.lowest == null || returning.lowest.altitude > group.lowest.altitude)
 					returning.lowest = group.lowest;
 			}
+			else{
+				//consider hidden groups as 0
+				returning.countPerOrder[group.pois[0].order] = 0;
+			}
 		}
+		returning.countPerOrder = sortObject(returning.countPerOrder);
 		return returning;
 	}
 
 	findInvalid(){
 		let returning = [];
-		for(let x in this.pois){
-			if(!this.pois[x].isValid(this)){
-				returning.push(this.pois[x]);
+		for(let g in this.layerGroups){
+			if(!this.layerGroups[g].visible) continue;
+			let pois = this.layerGroups[g].pois;
+			for(let x in pois){
+				if(!pois[x].isValid(this)){
+					returning.push(pois[x]);
+				}
 			}
 		}
 		return returning;
 	}
 
+	// Adds placeholders (invisible markers) to the circle cluster 
+	//for every poi not in target group
 	addPlaceholders(target){
 		for(let x in this.layerGroups){
-			if(x.visible && x !== target){
+			if(this.layerGroups[x].visible && x !== target){
 				this.layerGroups[x].addPlaceholders(this.circleCluster);
 			}
 		}
 	}
 
+	// Marks all pois on target group
 	markPOIs(target) {
 		this.cleanUpCircles();
 		this.layerGroups[target].addCircles(MARK_RADIUS, "blue", "white", this.circleCluster);
 		this.addPlaceholders(target);
 	}
 
+	// Marks neighbours of a point in target group
 	markNeighbours(lat, lng, dist, target){
 		this.cleanUpCircles();
 		this.layerGroups[target].markNeighbours(L.latLng(lat, lng), dist, this.circleCluster);
@@ -588,7 +621,7 @@ class Map {
 function onLoad()
 {
 	map = new Map(MAP_CENTRE, 12);
-	map.addCircle(MAP_CENTRE, 100, "FCT/UNL", "red", "pink");
+	createCircle(MAP_CENTRE, 100, "red", "pink", "FCT/UNL").addTo(map.lmap);
 	let inputs = document.getElementsByTagName("input");
 	for(let x in inputs){
 		if(inputs[x].type === "checkbox")
@@ -603,11 +636,13 @@ function checkboxUpdate(checkbox){
 	displayStatsVG();
 }
 
+// Updated the html to reflect the current stats of the VGs
 function displayStatsVG() {
 	let stats = map.calculateVGStats();
 	document.getElementById("visible_caches").innerHTML = stats.countAll.toString();
 	let display = "";
 	for(let x in stats.countPerOrder){
+		//Add a line for each order with the partial count
 		display += "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#8226;&nbsp;Ordem " + 
 			x.toString() + ": " + 
 			stats.countPerOrder[x].toString() + "<br/>";
@@ -617,8 +652,10 @@ function displayStatsVG() {
 	let highestAnchor = document.getElementById("highest_cache");
 	let lowestAnchor = document.getElementById("lowest_cache");
 
+	//handle display of highest VG
 	if(stats.highest != null) {
 		highestAnchor.innerHTML = stats.highest.name;
+		//link the VG's name to its location for ease of use
 		highestAnchor.href = "javascript:map.centerOn(" + 
 			stats.highest.latitude.toString()  + "," + 
 			stats.highest.longitude.toString() + ")"; 
@@ -628,8 +665,10 @@ function displayStatsVG() {
 		highestAnchor.href = ""; 
 	}
 
+	//handle display of lowest VG
 	if(stats.lowest != null){
 		lowestAnchor.innerHTML = stats.lowest.name;
+		//link the VG's name to its location for ease of use
 		lowestAnchor.href = "javascript:map.centerOn(" + 
 			stats.lowest.latitude.toString()  + "," + 
 			stats.lowest.longitude.toString() + ")"; 
@@ -641,24 +680,28 @@ function displayStatsVG() {
 }
 
 function onFindInvalidClick(){
+	// toggle button to hide invalid
 	let button = document.getElementById("invalid_caches_button");
 	button.value = "Fechar VGs inválidos";
 	button.onclick = onHideInvalidClick;
+	
+	// create scrollbox
 	let div = document.getElementById("invalid_caches_div");
 	div.style = "height:75px;border:1px solid #A4747E;border-left:0;border-right:0;overflow:auto;";
+
 	let display = "";
+	// we search for invalids every time they're requested, in case there has been any changes.
 	let invalidArray = map.findInvalid();
 	for(let x in invalidArray){
-		if(map.isPOIVisible(invalidArray[x])){
-			display += "<a href='javascript:map.centerOn(" + invalidArray[x].latitude + "," +
-			invalidArray[x].longitude + ")' >" +
-			invalidArray[x].name + "</a><br/>";
-		}
+		display += "<a href='javascript:map.centerOn(" + invalidArray[x].latitude + "," +
+		invalidArray[x].longitude + ")' >" +
+		invalidArray[x].name + "</a><br/>";
 	}
 	div.innerHTML = display;
 }
 
 function onHideInvalidClick(){
+	// toggle button to search invalid
 	let button = document.getElementById("invalid_caches_button");
 	button.value = "Procurar VGs inválidos";
 	button.onclick = onFindInvalidClick;
@@ -670,20 +713,26 @@ function onHideInvalidClick(){
 function onShowHeightsClick(){
 	map.cleanUpCircles();
 	for(let g in map.layerGroups){
+		//skip hidden groups
 		if(!map.layerGroups[g].visible)
 			continue;
+			
 		let pois = map.layerGroups[g].pois;
 		for(let x in pois){
 			let vg = pois[x];
-			if(vg instanceof VG){
-				let alt = vg.altitude * HEIGHT_SCALE;
-				if(isNaN(alt)){
-					createPlaceholder(vg.getLatLng()).addTo(map.circleCluster);
-				}
-				else {
-					createCircle(vg.getLatLng(), alt, "pink", "white", "").addTo(map.circleCluster);
-				}
+			//skip POIs that aren't VGs
+			if(!(vg instanceof VG))
+				continue;
+				
+			let alt = vg.altitude * HEIGHT_SCALE;
+			//Some VGs might not have altitude, in which case its value will be NaN
+			if(isNaN(alt)){
+				createPlaceholder(vg.getLatLng()).addTo(map.circleCluster);
 			}
+			else {
+				createCircle(vg.getLatLng(), alt, "pink", "white", "").addTo(map.circleCluster);
+			}
+			
 		}
 	}
 }
