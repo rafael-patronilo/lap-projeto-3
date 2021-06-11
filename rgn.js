@@ -144,7 +144,7 @@ class POI {
 	makeMarker(icons){
 		this.layer = L.layerGroup();
 		this.marker = L.marker(this.getLatLng(), {icon: icons[this.iconSource]}).addTo(this.layer);
-		return this.layer;
+		return this.marker;
 	}
 
 	isValid(map){
@@ -171,18 +171,29 @@ class VG extends POI {
 	makeMarker(icons){
 		super.makeMarker(icons);
 		this.marker
-			.bindPopup("<b>&#9906; " + this.name + "</b><br/>"
-			+ "VG de ordem " + this.order + " (" + this.type + ")<br/>"
-			+ "Longitude: <b>" + this.longitude + "</b><br/>"
-			+ "Latitude: <b>" + this.latitude + "</b><br/>"
-			+ "Altitude: <b>" + this.altitude + "</b><br/>"
-			+ "<input type='button' value='Mostrar mesma ordem' onclick='map.markPOIs(\"" + 
-				this.constructor.name + "\")'>"
-			+ "<input type='button' value='StreetView' onclick='window.open(\"http://maps.google.com/maps?q=&layer=c&cbll=" 
-				+ this.latitude + "," + this.longitude
-				+ "\", \"_blank\")'>")
-				.bindTooltip(this.name);
-		return this.layer;
+			.bindPopup(this.makePopup())
+				.bindTooltip(this.makeTooltip());
+		return this.marker;
+	}
+
+	makeTooltip(){
+		return this.name;
+	}
+
+	makePopup(){
+		let div = document.createElement("div");
+		div.appendChild(document.createTextNode("<b>&#9906; " + this.name + "</b><br/>"
+		+ "VG de ordem " + this.order + "<br/>"
+		+ "Latitude: <b>" + this.latitude + "</b><br/>"
+		+ "Longitude: <b>" + this.longitude + "</b><br/>"
+		+ "Altitude: <b>" + this.altitude + "</b><br/>"
+		+ "Tipo: <b>" + this.type + "</b><br/>"));
+		return div;
+		/*"<input type='button' value='Mostrar mesma ordem' onclick='map.markPOIs(\"" + 
+			this.constructor.name + "\")'>"
+		+ "<input type='button' value='StreetView' onclick='window.open(\"http://maps.google.com/maps?q=&layer=c&cbll=" 
+			+ this.latitude + "," + this.longitude
+			+ "\", \"_blank\")'>";*/
 	}
 
 	isValid(map){
@@ -206,11 +217,36 @@ class VG1 extends VG{
 	constructor(name, latitude, longitude, altitude, type){
 		super(name, latitude, longitude, altitude, type, 1, 30, 60);
 	}
+
+	makePopup(){
+		let span = document.createElement("span");
+		span.id = "neighbours";
+		let popup = super.makePopup();
+		popup.appendChild(document.createTextNode("<br/>Vizinhos (60km ou menos): "));
+		popup.appendChild(span);
+		return popup;	
+	}
+
+	makeMarker(icons){
+		let marker = super.makeMarker(icons);
+		marker.on('popupopen', function(event){
+			let content = event.popup.getContent();
+			let span = content.children.namedItem("neighbours")
+			span.innerHTML = map.layerGroups["VG1"].countNeighbours(this.latitude, this.longitude, 60);
+		});
+		return marker;
+	}
 }
 
 class VG2 extends VG{
 	constructor(name, latitude, longitude, altitude, type){
 		super(name, latitude, longitude, altitude, type, 2, 20, 30);
+	}
+	
+	makePopup(){
+		return super.makePopup() 
+			/*+ "<br/><input type='button' value='Mostrar vizinhos (30km ou menos)' onclick='map.markNeighbours(" + 
+			this.latitude + "," + this.longitude + ",30,\"VG2\")'>"*/;
 	}
 }
 
@@ -228,19 +264,19 @@ class VG4 extends VG{
 
 function xmlToVG(xml) {
 	let name = getFirstValueByTagName(xml, "name");
-	let latitude = getFirstValueByTagName(xml, "latitude");
-	let longitude = getFirstValueByTagName(xml, "longitude");
-	let order = getFirstValueByTagName(xml, "order");
-	let altitude = getFirstValueByTagName(xml, "altitude");
+	let latitude = parseFloat(getFirstValueByTagName(xml, "latitude"));
+	let longitude = parseFloat(getFirstValueByTagName(xml, "longitude"));
+	let order = parseInt(getFirstValueByTagName(xml, "order"));
+	let altitude = parseFloat(getFirstValueByTagName(xml, "altitude"));
 	let type = getFirstValueByTagName(xml, "type");
 	switch(order){
-		case "1":
+		case 1:
 			return new VG1(name, latitude, longitude, altitude, type);
-		case "2":
+		case 2:
 			return new VG2(name, latitude, longitude, altitude, type);
-		case "3":
+		case 3:
 			return new VG3(name, latitude, longitude, altitude, type);
-		case "4":
+		case 4:
 			return new VG4(name, latitude, longitude, altitude, type);
 		default:
 			return new VG(name, latitude, longitude, altitude, type, order, null, null);
@@ -251,12 +287,18 @@ class Group{
 	constructor(){
 		this.visible = true;
 		this.pois = [];
-		this.layers = [];
+		this.markers = [];
+		this.highest = null;
+		this.lowest = null;
 	}
 
 	addMarker(icons, poi){
 		this.pois.push(poi);
-		this.layers.push(poi.makeMarker(icons));
+		if(!isNaN(poi.altitude) && (this.highest == null || this.highest.altitude < poi.altitude))
+			this.highest = poi;
+		if(!isNaN(poi.altitude) && (this.lowest == null || this.lowest.altitude > poi.altitude))
+			this.lowest = poi;
+		this.markers.push(poi.makeMarker(icons));
 	}
 
 	addCircles(radius, color, fillColor, cluster){
@@ -268,6 +310,37 @@ class Group{
 	addPlaceholders(cluster){
 		for(let x in this.pois){
 			createPlaceholder(this.pois[x].getLatLng()).addTo(cluster);
+		}
+	}
+
+	countPOIs(){
+		return this.pois.length;
+	}
+
+	countNeighbours(lat, lng, dist){
+		let count = 0;
+		for(let x in this.pois){
+			let poi = this.pois[x];
+			let poiPos = poi.getLatLng();
+			if(!(poiPos.lat == lat && poiPos.lng == lng) &&
+					haversine(lat, lng, poiPos.lat, poiPos.lng) <= dist){
+				count++;
+			}
+		}
+		return count;
+	}
+
+	markNeighbours(pos, dist, cluster){
+		for(let x in this.pois){
+			let poi = this.pois[x];
+			let poiPos = poi.getLatLng();
+			if(!poiPos.equals(pos) && 
+					haversine(pos.lat, pos.lng, poiPos.lat, poiPos.lng) <= dist){
+				createCircle(poiPos, MARK_RADIUS, "orange", "white", "").addTo(cluster);
+			}
+			else{
+				createPlaceholder(poiPos).addTo(cluster);
+			}
 		}
 	}
 }
@@ -361,7 +434,7 @@ class Map {
 		this.cluster.clearLayers();
 		for(let x in this.layerGroups)
 			if(this.layerGroups[x].visible)
-				this.cluster.addLayers(this.layerGroups[x].layers);
+				this.cluster.addLayers(this.layerGroups[x].markers);
 	}
 
 	populate(icons, pois)  {
@@ -415,30 +488,15 @@ class Map {
 			highest : null,
 			lowest : null
 		}
-		let highestAltitude = null;
-		let lowestAltitude = null;
-		for(let i in this.pois){
-			let vg = this.pois[i];
-			if(this.isPOIVisible(vg) && vg instanceof VG){
-				let altitude = parseFloat(vg.altitude);
-				if (!isNaN(altitude) && (highestAltitude == null || highestAltitude < altitude)){
-					returning.highest = vg;
-					highestAltitude = altitude;
-				}
-				if (!isNaN(altitude) && (lowestAltitude == null || lowestAltitude > altitude)){
-					returning.lowest = vg;
-					lowestAltitude = altitude;
-				}
-				if(returning.countPerOrder[vg.order] == undefined){
-					returning.countPerOrder[vg.order] = 1;
-				}
-				else{
-					returning.countPerOrder[vg.order]++;
-				}
-				returning.countAll++;
-			}
-			else if (vg instanceof VG && returning.countPerOrder[vg.order] == undefined){
-				returning.countPerOrder[vg.order] = 0;
+		for(let x in this.layerGroups){
+			let group = this.layerGroups[x];
+			if(group.visible && group.pois[0] instanceof VG){
+				returning.countPerOrder[x] = group.countPOIs();
+				returning.countAll += returning.countPerOrder[x];
+				if(returning.highest == null || returning.highest.altitude < group.highest.altitude)
+					returning.highest = group.highest;
+				if(returning.lowest == null || returning.lowest.altitude > group.lowest.altitude)
+					returning.lowest = group.lowest;
 			}
 		}
 		return returning;
@@ -457,6 +515,16 @@ class Map {
 	markPOIs(target) {
 		this.cleanUpCircles();
 		this.layerGroups[target].addCircles(MARK_RADIUS, "blue", "white", this.circleCluster);
+		for(let x in this.layerGroups){
+			if(x !== target){
+				this.layerGroups[x].addPlaceholders(this.circleCluster);
+			}
+		}
+	}
+
+	markNeighbours(lat, lng, dist, target){
+		this.cleanUpCircles();
+		this.layerGroups[target].markNeighbours(L.latLng(lat, lng), dist, this.circleCluster);
 		for(let x in this.layerGroups){
 			if(x !== target){
 				this.layerGroups[x].addPlaceholders(this.circleCluster);
@@ -559,7 +627,7 @@ function onShowHeightsClick(){
 		for(let x in pois){
 			let vg = pois[x];
 			if(vg instanceof VG){
-				let alt = parseFloat(vg.altitude) * HEIGHT_SCALE;
+				let alt = vg.altitude * HEIGHT_SCALE;
 				if(isNaN(alt)){
 					createPlaceholder(vg.getLatLng()).addTo(map.circleCluster);
 				}
