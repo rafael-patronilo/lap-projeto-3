@@ -52,7 +52,6 @@ const MARK_RADIUS = 350;
 let map = null;
 
 
-
 /* USEFUL FUNCTIONS */
 
 // Capitalize the first letter of a string.
@@ -94,6 +93,29 @@ function getAllValuesByTagName(xml, name)  {
 
 function getFirstValueByTagName(xml, name)  {
 	return getAllValuesByTagName(xml, name)[0].childNodes[0].nodeValue;
+}
+
+function textNode(text){
+	return document.createTextNode(text);
+}
+
+function bold(text){
+	let element = document.createElement("b");
+	element.appendChild(textNode(text));
+	return element;
+}
+
+function linebreak(){
+	return document.createElement("br");
+}
+
+function button(id, text, onclick){
+	let element = document.createElement("input");
+	element.type = "button";
+	element.id = id;
+	element.value = text;
+	element.onclick = onclick;
+	return element;
 }
 
 function fakeIcon(){
@@ -182,18 +204,38 @@ class VG extends POI {
 
 	makePopup(){
 		let div = document.createElement("div");
-		div.appendChild(document.createTextNode("<b>&#9906; " + this.name + "</b><br/>"
-		+ "VG de ordem " + this.order + "<br/>"
-		+ "Latitude: <b>" + this.latitude + "</b><br/>"
-		+ "Longitude: <b>" + this.longitude + "</b><br/>"
-		+ "Altitude: <b>" + this.altitude + "</b><br/>"
-		+ "Tipo: <b>" + this.type + "</b><br/>"));
+		div.appendChild(bold("\u26B2 " + this.name )); 
+		div.appendChild(linebreak());
+
+		div.appendChild(textNode("VG de ordem " + this.order));
+		div.appendChild(linebreak());
+
+		div.appendChild(textNode("Latitude: "));
+		div.appendChild(bold(this.latitude)); 
+		div.appendChild(linebreak());
+
+		div.appendChild(textNode("Longitude: "));
+		div.appendChild(bold(this.longitude)); 
+		div.appendChild(linebreak());
+
+		div.appendChild(textNode("Altitude: "));
+		div.appendChild(bold(this.altitude)); 
+		div.appendChild(linebreak());
+
+		div.appendChild(textNode("Tipo: "));
+		div.appendChild(bold(this.type)); 
+		div.appendChild(linebreak());
+
+		let name = this.constructor.name;
+		div.appendChild(button("", "Mostrar mesma ordem", function(x){
+			map.markPOIs(name);
+			}));
+		let lat = this.latitude;
+		let lng = this.longitude;
+		div.appendChild(button("", "StreetView", function(x){
+			window.open("http://maps.google.com/maps?q=&layer=c&cbll="+ lat + "," + lng);
+			}));
 		return div;
-		/*"<input type='button' value='Mostrar mesma ordem' onclick='map.markPOIs(\"" + 
-			this.constructor.name + "\")'>"
-		+ "<input type='button' value='StreetView' onclick='window.open(\"http://maps.google.com/maps?q=&layer=c&cbll=" 
-			+ this.latitude + "," + this.longitude
-			+ "\", \"_blank\")'>";*/
 	}
 
 	isValid(map){
@@ -222,17 +264,20 @@ class VG1 extends VG{
 		let span = document.createElement("span");
 		span.id = "neighbours";
 		let popup = super.makePopup();
-		popup.appendChild(document.createTextNode("<br/>Vizinhos (60km ou menos): "));
+		popup.appendChild(linebreak());
+		popup.appendChild(document.createTextNode("Vizinhos (60km ou menos): "));
 		popup.appendChild(span);
 		return popup;	
 	}
 
 	makeMarker(icons){
 		let marker = super.makeMarker(icons);
+		let lat = this.latitude;
+		let lng = this.longitude;
 		marker.on('popupopen', function(event){
 			let content = event.popup.getContent();
 			let span = content.children.namedItem("neighbours")
-			span.innerHTML = map.layerGroups["VG1"].countNeighbours(this.latitude, this.longitude, 60);
+			span.innerHTML = map.layerGroups["VG1"].countNeighbours(lat, lng, 60);
 		});
 		return marker;
 	}
@@ -244,9 +289,13 @@ class VG2 extends VG{
 	}
 	
 	makePopup(){
-		return super.makePopup() 
-			/*+ "<br/><input type='button' value='Mostrar vizinhos (30km ou menos)' onclick='map.markNeighbours(" + 
-			this.latitude + "," + this.longitude + ",30,\"VG2\")'>"*/;
+		let popup = super.makePopup();
+		let lat = this.latitude;
+		let lng = this.longitude;
+		popup.appendChild(button("", "Mostrar vizinhos (30km ou menos)", function(x){
+			map.markNeighbours(lat, lng, 30, "VG2");
+		}));
+		return popup;
 	}
 }
 
@@ -512,24 +561,24 @@ class Map {
 		return returning;
 	}
 
-	markPOIs(target) {
-		this.cleanUpCircles();
-		this.layerGroups[target].addCircles(MARK_RADIUS, "blue", "white", this.circleCluster);
+	addPlaceholders(target){
 		for(let x in this.layerGroups){
-			if(x !== target){
+			if(x.visible && x !== target){
 				this.layerGroups[x].addPlaceholders(this.circleCluster);
 			}
 		}
 	}
 
+	markPOIs(target) {
+		this.cleanUpCircles();
+		this.layerGroups[target].addCircles(MARK_RADIUS, "blue", "white", this.circleCluster);
+		this.addPlaceholders(target);
+	}
+
 	markNeighbours(lat, lng, dist, target){
 		this.cleanUpCircles();
 		this.layerGroups[target].markNeighbours(L.latLng(lat, lng), dist, this.circleCluster);
-		for(let x in this.layerGroups){
-			if(x !== target){
-				this.layerGroups[x].addPlaceholders(this.circleCluster);
-			}
-		}
+		this.addPlaceholders(target);
 	}
 }
 
