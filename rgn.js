@@ -96,6 +96,39 @@ function getFirstValueByTagName(xml, name)  {
 	return getAllValuesByTagName(xml, name)[0].childNodes[0].nodeValue;
 }
 
+function fakeIcon(){
+	let fakeIcon = L.divIcon(null);
+	fakeIcon.createIcon = function (params) {
+		return document.createElement("div");
+	}
+	fakeIcon.createShadow = function (params) {
+		return document.createElement("div");
+	}
+	return fakeIcon;
+}
+
+function createPlaceholder(pos){
+	return L.marker(pos, {icon:fakeIcon()});
+}
+
+function createInvisibleCluster(){
+	return L.markerClusterGroup({
+		iconCreateFunction: function(cluster) {
+			return fakeIcon();
+		}
+	});
+}
+
+function createCircle(pos, radius, color, fillColor, popup){
+	let circle =
+		L.circle(pos,
+			radius,
+			{color: color, fillColor: fillColor, fillOpacity: 0.4}
+		);
+	if( popup != "" )
+		circle.bindPopup(popup);
+	return circle;
+}
 
 /* Point Of Interest */
 
@@ -106,31 +139,12 @@ class POI {
 		this.longitude = longitude;
 		this.iconSource = iconSource;
 		this.marker = null;
-		this.circle = null;
-		this.layer = null;
 	}
 
-	makeLayer(icons){
+	makeMarker(icons){
 		this.layer = L.layerGroup();
 		this.marker = L.marker(this.getLatLng(), {icon: icons[this.iconSource]}).addTo(this.layer);
 		return this.layer;
-	}
-
-	addCircle(radius, color, fillColor){
-		this.circle =
-			L.circle(this.getLatLng(),
-				radius,
-				{color: color, fillColor: fillColor, fillOpacity: 0.4}
-			);
-		this.circle.addTo(this.layer);
-		return this.circle;
-	}
-
-	removeCircle(){
-		if(this.circle == null)
-			return;
-		this.circle.removeFrom(this.layer);
-		this.circle = null;
 	}
 
 	isValid(map){
@@ -154,8 +168,8 @@ class VG extends POI {
 		this.maxDistance = maxDistance;
 	}
 
-	makeLayer(icons){
-		super.makeLayer(icons);
+	makeMarker(icons){
+		super.makeMarker(icons);
 		this.marker
 			.bindPopup("<b>&#9906; " + this.name + "</b><br/>"
 			+ "VG de ordem " + this.order + " (" + this.type + ")<br/>"
@@ -242,18 +256,18 @@ class Group{
 
 	addMarker(icons, poi){
 		this.pois.push(poi);
-		this.layers.push(poi.makeLayer(icons));
+		this.layers.push(poi.makeMarker(icons));
 	}
 
-	addCircles(radius, color, fillColor){
+	addCircles(radius, color, fillColor, cluster){
 		for(let x in this.pois){
-			this.pois[x].addCircle(radius, color, fillColor);
+			createCircle(this.pois[x].getLatLng(), radius, color, fillColor, "").addTo(cluster);
 		}
 	}
-	
-	removeCircles(){
+
+	addPlaceholders(cluster){
 		for(let x in this.pois){
-			this.pois[x].removeCircle();
+			createPlaceholder(this.pois[x].getLatLng()).addTo(cluster);
 		}
 	}
 }
@@ -265,12 +279,13 @@ class Map {
 		this.lmap = L.map(MAP_ID).setView(center, zoom);
 		this.addBaseLayers(MAP_LAYERS);
 		this.cluster = L.markerClusterGroup().addTo(this.lmap);
+		this.circleCluster = createInvisibleCluster().addTo(this.lmap);
 		this.layerGroups = {};
 		let icons = this.loadIcons(RESOURCES_DIR);
 		this.pois = this.loadRGN(RESOURCES_DIR + RGN_FILE_NAME);
 		this.populate(icons, this.pois);
 		this.addClickHandler(e => {
-				this.cleanUpOnClick();
+				this.cleanUpCircles();
 				return L.popup()
 				.setLatLng(e.latlng)
 				.setContent("You clicked the map at " + e.latlng.toString());
@@ -325,10 +340,8 @@ class Map {
 		return icons;
 	}
 
-	cleanUpOnClick(){
-		for(let x in this.layerGroups){
-			this.layerGroups[x].removeCircles();
-		}
+	cleanUpCircles(){
+		this.circleCluster.clearLayers();
 	}
 
 	loadRGN(filename) {
@@ -442,9 +455,13 @@ class Map {
 	}
 
 	markPOIs(target) {
-		this.cleanUpOnClick();
-		this.layerGroups[target].addCircles(MARK_RADIUS, "blue", "white")
-		this.remakeCluster();
+		this.cleanUpCircles();
+		this.layerGroups[target].addCircles(MARK_RADIUS, "blue", "white", this.circleCluster);
+		for(let x in this.layerGroups){
+			if(x !== target){
+				this.layerGroups[x].addPlaceholders(this.circleCluster);
+			}
+		}
 	}
 }
 
@@ -464,6 +481,7 @@ function onLoad()
 }
 
 function checkboxUpdate(checkbox){
+	map.cleanUpCircles();
 	map.setPOIVisibility(checkbox.id, checkbox.checked);
 	displayStatsVG();
 }
@@ -533,14 +551,22 @@ function onHideInvalidClick(){
 }
 
 function onShowHeightsClick(){
-	/*
-	for(let x in map.pois){
-		if(map.pois[x] instanceof VG){
-			let lng = map.pois[x].longitude;
-			let lat = map.pois[x].latitude;
-			let alt = parseFloat(map.pois[x].altitude) * HEIGHT_SCALE;
-			if(!isNaN(alt))
-				map.addCircle(L.latLng(lat, lng), alt, "", "pink", "white", false);
+	map.cleanUpCircles();
+	for(let g in map.layerGroups){
+		if(!map.layerGroups[g].visible)
+			continue;
+		let pois = map.layerGroups[g].pois;
+		for(let x in pois){
+			let vg = pois[x];
+			if(vg instanceof VG){
+				let alt = parseFloat(vg.altitude) * HEIGHT_SCALE;
+				if(isNaN(alt)){
+					createPlaceholder(vg.getLatLng()).addTo(map.circleCluster);
+				}
+				else {
+					createCircle(vg.getLatLng(), alt, "pink", "white", "").addTo(map.circleCluster);
+				}
+			}
 		}
-	}*/
+	}
 }
