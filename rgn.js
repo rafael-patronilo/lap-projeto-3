@@ -125,13 +125,7 @@ function button(id, text, onclick){
 
 // Create fake icon (empty) used in clustering of circles
 function fakeIcon(){
-	let fakeIcon = L.divIcon(null);
-	fakeIcon.createIcon = function (params) {
-		return document.createElement("div");
-	}
-	fakeIcon.createShadow = function (params) {
-		return document.createElement("div");
-	}
+	let fakeIcon = L.divIcon({html:"", className:""});
 	return fakeIcon;
 }
 
