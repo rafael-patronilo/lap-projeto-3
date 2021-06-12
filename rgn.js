@@ -231,7 +231,7 @@ class VG extends POI {
 		div.appendChild(linebreak());
 
 		div.appendChild(textNode("Altitude: "));
-		div.appendChild(bold(this.altitude)); 
+		div.appendChild(bold(isNaN(this.altitude) ? "--" : this.altitude)); 
 		div.appendChild(linebreak());
 
 		div.appendChild(textNode("Tipo: "));
