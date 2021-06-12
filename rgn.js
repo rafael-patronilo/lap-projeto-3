@@ -292,7 +292,7 @@ class VG1 extends VG{
 		marker.on('popupopen', function(event){
 			let content = event.popup.getContent();
 			let span = content.children.namedItem("neighbours")
-			span.innerHTML = map.layerGroups["VG1"].countNeighbours(lat, lng, 60);
+			span.innerHTML = map.countNeighbours(lat, lng, 60);
 		});
 		return marker;
 	}
@@ -592,6 +592,13 @@ class Map {
 				this.layerGroups[x].addPlaceholders(this.circleCluster);
 			}
 		}
+	}
+
+	countNeighbours(lat, lng, dist){
+		let count = 0;
+		for(let x in this.layerGroups)
+			count += this.layerGroups[x].countNeighbours(lat, lng, dist);
+		return count;
 	}
 
 	// Marks all pois on target group
